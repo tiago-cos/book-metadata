@@ -327,3 +327,72 @@ fn classify_graphql_error(message: String) -> Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requires_an_api_key() {
+        let error = HardcoverProvider::new("   ").expect_err("a blank key is no key");
+        assert!(matches!(error, Error::NotConfigured { .. }));
+        assert!(error.to_string().contains("hardcover"));
+    }
+
+    #[test]
+    fn accepts_a_key_with_or_without_the_bearer_prefix() {
+        assert_eq!(normalize_api_key("  Bearer  abc "), "abc");
+        assert_eq!(normalize_api_key("abc"), "abc");
+    }
+
+    #[test]
+    fn never_prints_the_api_key() {
+        let provider = HardcoverProvider::new("super-secret").expect("should build");
+        let rendered = format!("{provider:?}");
+        assert!(!rendered.contains("super-secret"));
+        assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn builds_punctuation_insensitive_patterns() {
+        assert_eq!(ilike_pattern(" Dune "), Some("%Dune%".to_owned()));
+        assert_eq!(
+            ilike_pattern("V. E. Schwab"),
+            Some("%V%E%Schwab%".to_owned())
+        );
+        assert_eq!(ilike_pattern("V.E. Schwab"), ilike_pattern("V. E. Schwab"));
+        assert_eq!(
+            ilike_pattern("The Hitchhiker's Guide"),
+            Some("%The%Hitchhiker%s%Guide%".to_owned())
+        );
+        assert_eq!(ilike_pattern("100%_pure"), Some("%100%pure%".to_owned()));
+        assert_eq!(ilike_pattern("Émile Zola"), Some("%Émile%Zola%".to_owned()));
+        assert_eq!(ilike_pattern("..."), None);
+    }
+
+    #[test]
+    fn relaxing_an_author_drops_initials_only() {
+        assert_eq!(
+            relaxed_author_pattern("V. E. Schwab"),
+            Some("%Schwab%".to_owned())
+        );
+        assert_eq!(
+            relaxed_author_pattern("Ursula K. Le Guin"),
+            Some("%Ursula%Le%Guin%".to_owned())
+        );
+        assert_eq!(
+            relaxed_author_pattern("Frank Herbert"),
+            ilike_pattern("Frank Herbert")
+        );
+        assert_eq!(relaxed_author_pattern("J K"), None);
+    }
+
+    #[test]
+    fn recognises_hasura_permission_errors() {
+        let error = classify_graphql_error("field 'books' not found in type: 'query_root'".into());
+        assert!(matches!(error, Error::Api { .. }));
+
+        let error = classify_graphql_error("access-denied".into());
+        assert!(matches!(error, Error::Unauthorized { .. }));
+    }
+}
