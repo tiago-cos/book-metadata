@@ -1,4 +1,5 @@
 mod error;
+mod http;
 mod metadata;
 mod provider;
 mod query;
