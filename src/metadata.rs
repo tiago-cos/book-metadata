@@ -34,6 +34,7 @@ impl BookMetadata {
             .map(|c| c.name.as_str())
     }
 
+    #[must_use]
     pub fn full_title(&self) -> String {
         match &self.subtitle {
             Some(subtitle) if !subtitle.is_empty() => format!("{}: {}", self.title, subtitle),
@@ -62,6 +63,7 @@ impl BookContributor {
         Self::new(name, Self::AUTHOR)
     }
 
+    #[must_use]
     pub fn is_author(&self) -> bool {
         self.role.eq_ignore_ascii_case(Self::AUTHOR)
     }

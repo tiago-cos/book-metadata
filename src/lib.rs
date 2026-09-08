@@ -1,23 +1,32 @@
-mod dates;
+#![forbid(unsafe_code)]
+
 mod error;
-mod genres;
-mod http;
 mod metadata;
 mod provider;
-mod providers;
 mod query;
-mod series;
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+
+macro_rules! support_modules {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[cfg(feature = "_provider")]
+            #[cfg_attr(
+                not(all(
+                    feature = "hardcover",
+                    feature = "openlibrary",
+                    feature = "googlebooks"
+                )),
+                allow(dead_code)
+            )]
+            mod $name;
+        )*
+    };
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+support_modules!(dates, genres, http, series);
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod providers;
+
+pub use error::{Error, Result};
+pub use metadata::{BookContributor, BookMetadata, BookSeries};
+pub use provider::MetadataProvider;
+pub use query::MetadataQuery;
