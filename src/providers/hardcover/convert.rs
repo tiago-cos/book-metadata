@@ -221,3 +221,313 @@ fn clean(value: Option<String>) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, TimeZone, Utc};
+
+    fn utc(year: i32, month: u32, day: u32) -> Option<DateTime<Utc>> {
+        Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).single()
+    }
+    use serde_json::json;
+
+    fn book_from(value: Value) -> Book {
+        serde_json::from_value(value).expect("fixture should deserialize")
+    }
+
+    fn edition_from(value: Value) -> Edition {
+        serde_json::from_value(value).expect("fixture should deserialize")
+    }
+
+    #[test]
+    fn maps_a_full_isbn_hit() {
+        let edition = edition_from(json!({
+            "isbn_10": "0345339703",
+            "isbn_13": "9780345339706",
+            "pages": 398,
+            "release_date": "1986-08-12",
+            "edition_format": "Mass Market Paperback",
+            "publisher": { "name": "Del Rey" },
+            "language": { "language": "English", "code3": "eng" },
+            "image": { "url": "https://example.test/edition.jpg" },
+            "book": {
+                "id": 7,
+                "title": "The Fellowship of the Ring",
+                "subtitle": "Being the First Part of The Lord of the Rings",
+                "description": "A hobbit leaves the Shire.",
+                "pages": 423,
+                "release_date": "1954-07-29",
+                "cached_tags": {
+                    "Genre": [
+                        { "tag": "Fantasy", "count": 900 },
+                        { "tag": "Classics", "count": 120 }
+                    ],
+                    "Mood": [{ "tag": "Adventurous", "count": 400 }]
+                },
+                "image": { "url": "https://example.test/book.jpg" },
+                "contributions": [
+                    { "contribution": null, "author": { "name": "J.R.R. Tolkien" } },
+                    { "contribution": "Illustrator", "author": { "name": "Alan Lee" } }
+                ],
+                "book_series": [
+                    { "position": 1, "details": "#1", "series": { "name": "The Lord of the Rings" } }
+                ]
+            }
+        }));
+
+        let meta = from_edition(edition).expect("should map");
+
+        assert_eq!(meta.title, "The Fellowship of the Ring");
+        assert_eq!(
+            meta.subtitle.as_deref(),
+            Some("Being the First Part of The Lord of the Rings")
+        );
+        assert_eq!(meta.publisher.as_deref(), Some("Del Rey"));
+        assert_eq!(meta.isbn.as_deref(), Some("9780345339706"));
+        assert_eq!(meta.page_count, Some(398));
+        assert_eq!(
+            meta.image_url.as_deref(),
+            Some("https://example.test/edition.jpg")
+        );
+        assert_eq!(meta.language.as_deref(), Some("English"));
+        assert_eq!(meta.publication_date, utc(1954, 7, 29));
+        assert_eq!(meta.genres, vec!["Fantasy", "Classics"]);
+        assert_eq!(
+            meta.contributors,
+            vec![
+                BookContributor::author("J.R.R. Tolkien"),
+                BookContributor::new("Alan Lee", "Illustrator"),
+            ]
+        );
+        assert_eq!(
+            meta.series,
+            Some(BookSeries::new("The Lord of the Rings", 1.0))
+        );
+        assert_eq!(meta.source.as_deref(), Some("hardcover"));
+        assert_eq!(meta.source_id.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn falls_back_to_the_work_when_the_edition_is_bare() {
+        let edition = edition_from(json!({
+            "book": { "title": "Dune", "pages": 412, "image": { "url": "https://example.test/dune.jpg" } }
+        }));
+
+        let meta = from_edition(edition).expect("should map");
+
+        assert_eq!(meta.title, "Dune");
+        assert_eq!(meta.page_count, Some(412));
+        assert_eq!(
+            meta.image_url.as_deref(),
+            Some("https://example.test/dune.jpg")
+        );
+        assert_eq!(meta.isbn, None);
+        assert_eq!(meta.publisher, None);
+    }
+
+    #[test]
+    fn falls_back_to_the_edition_date_when_the_work_has_none() {
+        let edition = edition_from(json!({
+            "release_date": "1986-08-12",
+            "book": { "title": "Undated Work" }
+        }));
+
+        let meta = from_edition(edition).expect("should map");
+
+        assert_eq!(meta.publication_date, utc(1986, 8, 12));
+    }
+
+    #[test]
+    fn the_most_read_edition_wins_over_the_most_complete_one() {
+        let book = book_from(json!({
+            "title": "Dune",
+            "editions": [
+                {
+                    "isbn_13": "9780441013593",
+                    "edition_format": "Paperback",
+                    "publisher": { "name": "Obscure Press" },
+                    "pages": 704,
+                    "image": { "url": "https://example.test/obscure.jpg" },
+                    "users_count": 3
+                },
+                {
+                    "publisher": { "name": "Ace" },
+                    "image": { "url": "https://example.test/popular.jpg" },
+                    "users_count": 4200
+                }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+
+        assert_eq!(meta.publisher.as_deref(), Some("Ace"));
+        assert_eq!(
+            meta.image_url.as_deref(),
+            Some("https://example.test/popular.jpg")
+        );
+    }
+
+    #[test]
+    fn an_uncounted_edition_loses_to_a_counted_one() {
+        let book = book_from(json!({
+            "title": "Dune",
+            "editions": [
+                { "publisher": { "name": "Uncounted" }, "isbn_13": "9780441013593", "pages": 704 },
+                { "publisher": { "name": "Counted" }, "users_count": 1 }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+        assert_eq!(meta.publisher.as_deref(), Some("Counted"));
+    }
+
+    #[test]
+    fn completeness_decides_between_equally_read_editions() {
+        let book = book_from(json!({
+            "title": "Obscure",
+            "editions": [
+                { "publisher": { "name": "Sparse" }, "users_count": 0 },
+                {
+                    "publisher": { "name": "Complete" },
+                    "isbn_13": "9780441013593",
+                    "pages": 300,
+                    "edition_format": "Hardcover",
+                    "users_count": 0
+                }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+        assert_eq!(meta.publisher.as_deref(), Some("Complete"));
+    }
+
+    #[test]
+    fn the_readers_edition_keeps_its_own_language() {
+        let book = book_from(json!({
+            "title": "Os Maias",
+            "editions": [
+                {
+                    "publisher": { "name": "Livros do Brasil" },
+                    "language": { "language": "Portuguese" },
+                    "users_count": 900
+                },
+                {
+                    "publisher": { "name": "Dedalus" },
+                    "language": { "language": "English" },
+                    "isbn_13": "9781873982860",
+                    "pages": 714,
+                    "users_count": 12
+                }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+        assert_eq!(meta.language.as_deref(), Some("Portuguese"));
+        assert_eq!(meta.publisher.as_deref(), Some("Livros do Brasil"));
+    }
+
+    #[test]
+    fn equal_candidates_keep_the_first_hardcover_returned() {
+        let book = book_from(json!({
+            "title": "Dune",
+            "editions": [
+                { "publisher": { "name": "First" }, "isbn_13": "9780441013593" },
+                { "publisher": { "name": "Second" }, "isbn_13": "9780441013594" }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+        assert_eq!(meta.publisher.as_deref(), Some("First"));
+    }
+
+    #[test]
+    fn picks_the_most_complete_edition_for_a_title_hit() {
+        let book = book_from(json!({
+            "title": "Dune",
+            "editions": [
+                { "edition_format": "Audiobook" },
+                {
+                    "isbn_13": "9780441013593",
+                    "edition_format": "Paperback",
+                    "publisher": { "name": "Ace" },
+                    "pages": 704
+                },
+                { "isbn_10": "0441172717" }
+            ]
+        }));
+
+        let meta = from_book(book).expect("should map");
+
+        assert_eq!(meta.isbn.as_deref(), Some("9780441013593"));
+        assert_eq!(meta.publisher.as_deref(), Some("Ace"));
+        assert_eq!(meta.page_count, Some(704));
+    }
+
+    #[test]
+    fn drops_records_without_a_title() {
+        assert!(from_book(book_from(json!({ "description": "no title here" }))).is_none());
+        assert!(from_book(book_from(json!({ "title": "   " }))).is_none());
+    }
+
+    #[test]
+    fn survives_missing_and_null_collections() {
+        let book = book_from(json!({
+            "title": "Sparse",
+            "contributions": null,
+            "book_series": null,
+            "cached_tags": null,
+            "editions": null
+        }));
+
+        let meta = from_book(book).expect("should map");
+
+        assert!(meta.contributors.is_empty());
+        assert!(meta.genres.is_empty());
+        assert_eq!(meta.series, None);
+    }
+
+    #[test]
+    fn reads_series_position_from_details_when_position_is_null() {
+        let rows: Vec<BookSeriesRow> = serde_json::from_value(json!([
+            { "position": null, "details": "Book 2.5", "series": { "name": "Vorkosigan Saga" } }
+        ]))
+        .expect("fixture should deserialize");
+
+        assert_eq!(series(&rows), Some(BookSeries::new("Vorkosigan Saga", 2.5)));
+    }
+
+    #[test]
+    fn prefers_a_numbered_series_over_an_unnumbered_one() {
+        let rows: Vec<BookSeriesRow> = serde_json::from_value(json!([
+            { "series": { "name": "Collected Works" } },
+            { "position": "3", "series": { "name": "Discworld" } }
+        ]))
+        .expect("fixture should deserialize");
+
+        assert_eq!(series(&rows), Some(BookSeries::new("Discworld", 3.0)));
+    }
+
+    #[test]
+    fn keeps_an_unnumbered_series_when_no_position_exists_anywhere() {
+        let rows: Vec<BookSeriesRow> = serde_json::from_value(json!([
+            { "position": null, "details": null, "series": { "name": "The Culture" } }
+        ]))
+        .expect("fixture should deserialize");
+
+        assert_eq!(series(&rows), Some(BookSeries::unnumbered("The Culture")));
+    }
+
+    #[test]
+    fn reads_genres_from_alternative_tag_shapes() {
+        assert_eq!(
+            genres(Some(
+                &json!({ "genres": ["Science Fiction", "Science fiction", " "] })
+            )),
+            vec!["Science Fiction"]
+        );
+        assert_eq!(genres(Some(&json!(["Horror"]))), vec!["Horror"]);
+        assert!(genres(Some(&json!("nonsense"))).is_empty());
+        assert!(genres(Some(&json!({ "Mood": [{ "tag": "Dark" }] }))).is_empty());
+    }
+}
