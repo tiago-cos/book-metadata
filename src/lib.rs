@@ -1,11 +1,11 @@
 mod dates;
 mod error;
+mod genres;
 mod http;
 mod metadata;
 mod provider;
 mod providers;
 mod query;
-
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
