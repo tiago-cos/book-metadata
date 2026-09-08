@@ -125,3 +125,70 @@ fn is_plausible_isbn(isbn: &str) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_isbns() {
+        assert_eq!(
+            MetadataQuery::isbn("978-0-345-33970-6").as_isbn(),
+            Some("9780345339706")
+        );
+        assert_eq!(
+            MetadataQuery::isbn(" 0 345 33970 x ").as_isbn(),
+            Some("034533970X")
+        );
+    }
+
+    #[test]
+    fn validates_isbn_shapes() {
+        assert!(MetadataQuery::isbn("978-0-345-33970-6").validate().is_ok());
+        assert!(MetadataQuery::isbn("034533970X").validate().is_ok());
+        assert!(MetadataQuery::isbn("12345").validate().is_err());
+        assert!(MetadataQuery::isbn("978034533970X").validate().is_err());
+    }
+
+    #[test]
+    fn rejects_unsearchable_titles() {
+        assert!(MetadataQuery::title("   ").validate().is_err());
+        assert!(MetadataQuery::title("...").validate().is_err());
+        assert!(MetadataQuery::title("Dune").validate().is_ok());
+        assert!(MetadataQuery::title("1Q84").validate().is_ok());
+    }
+
+    #[test]
+    fn exposes_the_query_through_accessors() {
+        let isbn = MetadataQuery::isbn("9780441013593");
+        assert_eq!(isbn.as_isbn(), Some("9780441013593"));
+        assert_eq!(isbn.as_title_author(), None);
+
+        let title = MetadataQuery::title_and_author("Dune", "Frank Herbert");
+        assert_eq!(title.as_isbn(), None);
+        assert_eq!(
+            title.as_title_author(),
+            Some(("Dune", Some("Frank Herbert")))
+        );
+    }
+
+    #[test]
+    fn author_is_only_kept_when_non_empty() {
+        let query = MetadataQuery::title("Dune").with_author("  ");
+        assert_eq!(query.as_title_author(), Some(("Dune", None)));
+    }
+
+    #[test]
+    fn max_results_is_clamped() {
+        assert_eq!(
+            MetadataQuery::title("Dune")
+                .with_max_results(0)
+                .max_results(),
+            1
+        );
+        assert_eq!(
+            MetadataQuery::title("Dune").max_results(),
+            DEFAULT_MAX_RESULTS
+        );
+    }
+}
