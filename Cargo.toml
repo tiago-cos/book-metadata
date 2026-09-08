@@ -12,6 +12,7 @@ googlebooks = ["_provider"]
 _provider = []
 
 [dependencies]
+async-trait = "0.1.92"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "serde", "clock"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
