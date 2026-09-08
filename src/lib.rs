@@ -22,7 +22,7 @@ macro_rules! support_modules {
     };
 }
 
-support_modules!(dates, genres, http, series);
+support_modules!(dates, genres, http, languages, series);
 
 pub mod providers;
 
