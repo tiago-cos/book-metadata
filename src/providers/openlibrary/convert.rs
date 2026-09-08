@@ -194,10 +194,10 @@ fn contributors(
 }
 
 fn push_unique(out: &mut Vec<BookContributor>, contributor: Option<BookContributor>) {
-    if let Some(contributor) = contributor {
-        if !out.contains(&contributor) {
-            out.push(contributor);
-        }
+    if let Some(contributor) = contributor
+        && !out.contains(&contributor)
+    {
+        out.push(contributor);
     }
 }
 
