@@ -6,6 +6,7 @@ mod metadata;
 mod provider;
 mod providers;
 mod query;
+mod series;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
