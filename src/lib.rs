@@ -1,3 +1,4 @@
+mod error;
 mod metadata;
 
 pub fn add(left: u64, right: u64) -> u64 {
