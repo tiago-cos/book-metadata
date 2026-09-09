@@ -1,3 +1,45 @@
+//! [Google Books](https://books.google.com) metadata provider.
+//!
+//! The broadest of the three for descriptions and covers, and the cheapest to
+//! query: one request answers everything, since Google returns a whole volume
+//! per hit rather than making you walk between records.
+//!
+//! What it does not have is series data. Google indexes a volume's position in
+//! a series but never the series name, so [`BookMetadata::series`] is always
+//! `None` here — use Hardcover for that.
+//!
+//! ```no_run
+//! # use book_metadata::{providers::googlebooks::GoogleBooksProvider, MetadataProvider, MetadataQuery};
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let provider = GoogleBooksProvider::from_env()?;
+//! let book = provider.fetch(&MetadataQuery::isbn("9780441013593")).await?;
+//! println!("{}", book.description.unwrap_or_default());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Configuration
+//!
+//! An API key is **required**. Google documents anonymous access, but the
+//! unauthenticated quota is exhausted on arrival in practice: the first
+//! request answers 403 `dailyLimitExceededUnreg` — "Daily Limit for
+//! Unauthenticated Use Exceeded. Continued use requires signup". Rather than
+//! let that surface as a runtime rate limit nobody can wait out, the key is
+//! demanded up front, as Hardcover's is.
+//!
+//! Create one in the Google Cloud console with the Books API enabled, then:
+//!
+//! ```no_run
+//! # use book_metadata::providers::googlebooks::GoogleBooksProvider;
+//! # fn run() -> Result<(), book_metadata::Error> {
+//! let provider = GoogleBooksProvider::builder()
+//!     .api_key("...")            // or GoogleBooksProvider::from_env()
+//!     .build()?;
+//! # let _ = provider;
+//! # Ok(())
+//! # }
+//! ```
+
 mod convert;
 mod model;
 
@@ -12,16 +54,23 @@ use crate::provider::MetadataProvider;
 use crate::query::{MetadataQuery, QueryKind};
 use model::{ErrorResponse, VolumesResponse};
 
+/// Identifier reported by [`MetadataProvider::name`].
 pub const PROVIDER_NAME: &str = convert::SOURCE;
 
+/// The volumes endpoint.
 pub const DEFAULT_ENDPOINT: &str = "https://www.googleapis.com/books/v1/volumes";
 
+/// Environment variable read by [`GoogleBooksProvider::from_env`].
 pub const API_KEY_ENV: &str = "GOOGLE_BOOKS_API_KEY";
 
 const MAX_RESULTS_PER_REQUEST: usize = 40;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// A configured Google Books client.
+///
+/// Cloning is cheap and one instance is meant to be reused, so connections are
+/// pooled.
 #[derive(Clone)]
 pub struct GoogleBooksProvider {
     client: reqwest::Client,
@@ -31,10 +80,23 @@ pub struct GoogleBooksProvider {
 }
 
 impl GoogleBooksProvider {
+    /// Builds a provider from an API key.
+    ///
+    /// Google's unauthenticated quota is exhausted on arrival, so there is no
+    /// useful keyless mode to fall back to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when the key is blank.
     pub fn new(api_key: impl Into<String>) -> Result<Self> {
         Self::builder().api_key(api_key).build()
     }
 
+    /// Builds a provider from the `GOOGLE_BOOKS_API_KEY` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when the variable is unset or blank.
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var(API_KEY_ENV).map_err(|_| Error::NotConfigured {
             provider: PROVIDER_NAME,
@@ -43,6 +105,7 @@ impl GoogleBooksProvider {
         Self::new(api_key)
     }
 
+    /// Starts a builder for an API key, a country, or the less common knobs.
     #[must_use]
     pub fn builder() -> GoogleBooksBuilder {
         GoogleBooksBuilder::default()
@@ -213,6 +276,7 @@ fn classify(status: reqwest::StatusCode, body: &str, retry_after: Option<Duratio
     }
 }
 
+/// Builder for [`GoogleBooksProvider`].
 #[derive(Debug, Clone)]
 pub struct GoogleBooksBuilder {
     endpoint: String,
@@ -237,6 +301,8 @@ impl Default for GoogleBooksBuilder {
 }
 
 impl GoogleBooksBuilder {
+    /// Sets the API key. Required: Google refuses unauthenticated requests
+    /// outright, so [`build`](Self::build) fails without one.
     #[must_use]
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         let api_key = api_key.into().trim().to_owned();
@@ -244,36 +310,53 @@ impl GoogleBooksBuilder {
         self
     }
 
+    /// Sets the country Google should answer for, as an ISO 3166-1 alpha-2
+    /// code such as `"US"` or `"PT"`.
+    ///
+    /// Google geolocates callers and answers 403 from regions it has not been
+    /// configured for. Setting this explicitly is the fix.
     #[must_use]
     pub fn country(mut self, country: impl Into<String>) -> Self {
         self.country = Some(country.into());
         self
     }
 
+    /// Overrides the endpoint. Mostly useful for tests.
     #[must_use]
     pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = endpoint.into();
         self
     }
 
+    /// Per-request timeout. Ignored when a custom client is supplied.
     #[must_use]
     pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
+    /// `User-Agent` sent with each request. Ignored when a custom client is
+    /// supplied.
     #[must_use]
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = user_agent.into();
         self
     }
 
+    /// Uses an existing HTTP client, so the caller keeps control over proxies,
+    /// connection pooling and middleware.
     #[must_use]
     pub fn client(mut self, client: reqwest::Client) -> Self {
         self.client = Some(client);
         self
     }
 
+    /// Builds the provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when no API key was set, or
+    /// [`Error::Transport`] when the HTTP client cannot be constructed.
     pub fn build(self) -> Result<GoogleBooksProvider> {
         let api_key = self.api_key.ok_or_else(|| Error::NotConfigured {
             provider: PROVIDER_NAME,
