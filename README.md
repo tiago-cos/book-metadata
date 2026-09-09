@@ -1,5 +1,8 @@
 # book-metadata
 
+[![Crates.io](https://img.shields.io/crates/v/book-metadata.svg)](https://crates.io/crates/book-metadata)
+[![Documentation](https://img.shields.io/docsrs/book-metadata)](https://docs.rs/book-metadata)
+
 Look up book metadata from several sources through one small Rust API.
 
 Every provider returns the same struct, so swapping or adding a source never
