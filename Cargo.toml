@@ -2,6 +2,13 @@
 name = "book-metadata"
 version = "0.1.0"
 edition = "2024"
+authors = ["tiago.costa.sousa@proton.me"]
+description = "A unified, extensible interface for fetching book metadata from multiple providers."
+repository = "https://github.com/tiago-cos/book-metadata"
+license = "MIT"
+readme = "README.md"
+keywords = ["book", "metadata", "isbn", "hardcover", "library"]
+categories = ["api-bindings"]
 
 [features]
 default = ["hardcover", "openlibrary", "googlebooks"]
@@ -21,3 +28,10 @@ thiserror = "2.0.20"
 
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[[example]]
+name = "search"
+required-features = ["hardcover", "openlibrary", "googlebooks"]
+
+[package.metadata.docs.rs]
+all-features = true
