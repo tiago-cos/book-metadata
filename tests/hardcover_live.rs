@@ -1,7 +1,7 @@
 #![cfg(feature = "hardcover")]
 
-use book_meta::providers::hardcover::HardcoverProvider;
-use book_meta::{MetadataProvider, MetadataQuery};
+use book_metadata::providers::hardcover::HardcoverProvider;
+use book_metadata::{MetadataProvider, MetadataQuery};
 
 fn provider() -> HardcoverProvider {
     HardcoverProvider::from_env().expect("set HARDCOVER_API_KEY to run the live tests")
@@ -102,5 +102,5 @@ async fn a_missing_isbn_is_not_found() {
         .expect_err("this ISBN should not exist");
 
     println!("{error}");
-    assert!(matches!(error, book_meta::Error::NotFound));
+    assert!(matches!(error, book_metadata::Error::NotFound));
 }

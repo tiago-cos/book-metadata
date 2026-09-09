@@ -1,5 +1,5 @@
 [package]
-name = "book-meta"
+name = "book-metadata"
 version = "0.1.0"
 edition = "2024"
 

@@ -6,8 +6,8 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::mpsc;
 use std::thread;
 
-use book_meta::providers::openlibrary::OpenLibraryProvider;
-use book_meta::{Error, MetadataProvider, MetadataQuery};
+use book_metadata::providers::openlibrary::OpenLibraryProvider;
+use book_metadata::{Error, MetadataProvider, MetadataQuery};
 
 struct MockServer {
     addr: SocketAddr,

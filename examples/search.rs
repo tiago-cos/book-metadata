@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use book_meta::providers::googlebooks::GoogleBooksProvider;
-use book_meta::providers::hardcover::HardcoverProvider;
-use book_meta::providers::openlibrary::OpenLibraryProvider;
-use book_meta::{BookMetadata, MetadataProvider, MetadataQuery};
+use book_metadata::providers::googlebooks::GoogleBooksProvider;
+use book_metadata::providers::hardcover::HardcoverProvider;
+use book_metadata::providers::openlibrary::OpenLibraryProvider;
+use book_metadata::{BookMetadata, MetadataProvider, MetadataQuery};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

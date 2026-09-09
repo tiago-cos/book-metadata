@@ -3,8 +3,8 @@
 use std::future::Future;
 use std::time::Duration;
 
-use book_meta::providers::openlibrary::{OpenLibraryBuilder, OpenLibraryProvider};
-use book_meta::{Error, MetadataProvider, MetadataQuery};
+use book_metadata::providers::openlibrary::{OpenLibraryBuilder, OpenLibraryProvider};
+use book_metadata::{Error, MetadataProvider, MetadataQuery};
 use tokio::sync::Mutex;
 
 static API_LOCK: Mutex<()> = Mutex::const_new(());

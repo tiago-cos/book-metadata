@@ -1,7 +1,7 @@
 #![cfg(feature = "googlebooks")]
 
-use book_meta::providers::googlebooks::GoogleBooksProvider;
-use book_meta::{MetadataProvider, MetadataQuery};
+use book_metadata::providers::googlebooks::GoogleBooksProvider;
+use book_metadata::{MetadataProvider, MetadataQuery};
 
 fn provider() -> GoogleBooksProvider {
     GoogleBooksProvider::from_env().expect("set GOOGLE_BOOKS_API_KEY to run the live tests")
@@ -68,5 +68,5 @@ async fn a_missing_isbn_is_not_found() {
         .expect_err("this ISBN should not exist");
 
     println!("{error}");
-    assert!(matches!(error, book_meta::Error::NotFound));
+    assert!(matches!(error, book_metadata::Error::NotFound));
 }

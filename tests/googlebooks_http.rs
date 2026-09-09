@@ -5,8 +5,8 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::mpsc;
 use std::thread;
 
-use book_meta::providers::googlebooks::GoogleBooksProvider;
-use book_meta::{Error, MetadataProvider, MetadataQuery};
+use book_metadata::providers::googlebooks::GoogleBooksProvider;
+use book_metadata::{Error, MetadataProvider, MetadataQuery};
 
 struct MockServer {
     addr: SocketAddr,
