@@ -1,3 +1,46 @@
+//! [Open Library](https://openlibrary.org) metadata provider.
+//!
+//! Requires no API key, no registration, and has a catalogue large enough
+//! that it usually has *something* for an ISBN nothing else knows. The
+//! trade is quality — records are crowd-edited, subjects are a mix of
+//! genres and cataloguing notes, and series are free text rather than a
+//! structured field.
+//!
+//! ```no_run
+//! # use book_metadata::{providers::openlibrary::OpenLibraryProvider, MetadataProvider, MetadataQuery};
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let provider = OpenLibraryProvider::new()?;
+//! let book = provider.fetch(&MetadataQuery::isbn("9780140328721")).await?;
+//! println!("{} — {:?}", book.title, book.series);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # How a lookup maps onto the API
+//!
+//! Open Library splits a book across separate records, so one lookup is
+//! several requests. [`fetch`](MetadataProvider::fetch) narrows the search
+//! to a single result before enriching it, so the common path costs three
+//! or four requests. [`search`](MetadataProvider::search) pays that per
+//! candidate; turn the extra requests off with [`OpenLibraryBuilder::detailed`]
+//! when a cheap, work-level answer is enough.
+//!
+//! # Etiquette
+//!
+//! Open Library is a nonprofit and asks clients to identify themselves. Set a
+//! `User-Agent` naming your application and a contact address:
+//!
+//! ```no_run
+//! # use book_metadata::providers::openlibrary::OpenLibraryProvider;
+//! # fn run() -> Result<(), book_metadata::Error> {
+//! let provider = OpenLibraryProvider::builder()
+//!     .user_agent("my-library/1.0 (me@example.com)")
+//!     .build()?;
+//! # let _ = provider;
+//! # Ok(())
+//! # }
+//! ```
+
 mod convert;
 mod model;
 
@@ -13,10 +56,13 @@ use crate::query::{MetadataQuery, QueryKind};
 use convert::Parts;
 use model::{Author, Edition, SearchDoc, SearchResponse, Work};
 
+/// Identifier reported by [`MetadataProvider::name`].
 pub const PROVIDER_NAME: &str = convert::SOURCE;
 
+/// Open Library's public API root.
 pub const DEFAULT_BASE_URL: &str = "https://openlibrary.org";
 
+/// Where cover images are served from.
 pub const DEFAULT_COVERS_URL: &str = "https://covers.openlibrary.org";
 
 const SEARCH_FIELDS: &str = "key,title,subtitle,author_name,first_publish_year,publisher,\
@@ -26,6 +72,10 @@ const MAX_AUTHOR_LOOKUPS: usize = 8;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A configured Open Library client.
+///
+/// Needs no credentials. Cloning is cheap and one instance is meant to be
+/// reused, so connections are pooled.
 #[derive(Debug, Clone)]
 pub struct OpenLibraryProvider {
     client: reqwest::Client,
@@ -35,15 +85,24 @@ pub struct OpenLibraryProvider {
 }
 
 impl OpenLibraryProvider {
+    /// Builds a provider with the default settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Transport`] when the HTTP client cannot be
+    /// constructed.
     pub fn new() -> Result<Self> {
         Self::builder().build()
     }
 
+    /// Starts a builder for a custom user agent, timeout, endpoint or HTTP
+    /// client.
     #[must_use]
     pub fn builder() -> OpenLibraryBuilder {
         OpenLibraryBuilder::default()
     }
 
+    /// The API root this provider talks to.
     #[must_use]
     pub fn base_url(&self) -> &str {
         &self.base_url
@@ -217,6 +276,7 @@ impl MetadataProvider for OpenLibraryProvider {
     }
 }
 
+/// Builder for [`OpenLibraryProvider`].
 #[derive(Debug, Clone)]
 pub struct OpenLibraryBuilder {
     base_url: String,
@@ -241,42 +301,64 @@ impl Default for OpenLibraryBuilder {
 }
 
 impl OpenLibraryBuilder {
+    /// Overrides the API root. Mostly useful for tests.
     #[must_use]
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
     }
 
+    /// Overrides where cover images are served from.
     #[must_use]
     pub fn covers_url(mut self, covers_url: impl Into<String>) -> Self {
         self.covers_url = covers_url.into();
         self
     }
 
+    /// Per-request timeout. Ignored when a custom client is supplied.
     #[must_use]
     pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
+    /// `User-Agent` sent with each request. Ignored when a custom client is
+    /// supplied.
+    ///
+    /// Open Library asks that this name your application and a way to reach
+    /// you.
     #[must_use]
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = user_agent.into();
         self
     }
 
+    /// Uses an existing HTTP client, so the caller keeps control over proxies,
+    /// connection pooling and middleware.
     #[must_use]
     pub fn client(mut self, client: reqwest::Client) -> Self {
         self.client = Some(client);
         self
     }
 
+    /// Whether a title search follows each hit through to its edition and work
+    /// records. On by default.
+    ///
+    /// Turning it off makes a search exactly one request, at the cost of the
+    /// fields Open Library only keeps on those records: description, series,
+    /// ISBN and publisher.
     #[must_use]
     pub const fn detailed(mut self, detailed: bool) -> Self {
         self.detailed = detailed;
         self
     }
 
+    /// Builds the provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Transport`] when the HTTP client cannot be
+    /// constructed.
     pub fn build(self) -> Result<OpenLibraryProvider> {
         let client = match self.client {
             Some(client) => client,
