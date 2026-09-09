@@ -12,6 +12,19 @@ pub enum QueryKind {
     },
 }
 
+/// A search request handed to any [`MetadataProvider`](crate::MetadataProvider).
+///
+/// Either an exact ISBN lookup or a title search, optionally narrowed by
+/// author. Providers return at most [`max_results`](Self::max_results)
+/// records, five by default.
+///
+/// ```
+/// use book_metadata::MetadataQuery;
+///
+/// let by_isbn = MetadataQuery::isbn("978-0-345-33970-6");
+/// let by_title = MetadataQuery::title("The Hobbit").with_author("Tolkien");
+/// let more = MetadataQuery::title("Dune").with_max_results(10);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataQuery {
     kind: QueryKind,
@@ -19,10 +32,17 @@ pub struct MetadataQuery {
 }
 
 impl MetadataQuery {
+    /// Builds an ISBN query. The input may contain hyphens or spaces.
+    ///
+    /// The value is normalised here but only validated when the query is
+    /// executed, or explicitly via [`validate`](Self::validate).
     pub fn isbn(isbn: impl AsRef<str>) -> Self {
         Self::from_kind(QueryKind::Isbn(normalize_isbn(isbn.as_ref())))
     }
 
+    /// Builds a title query. Add an author with
+    /// [`with_author`](Self::with_author) whenever you have one, since it
+    /// dramatically improves precision.
     pub fn title(title: impl Into<String>) -> Self {
         Self::from_kind(QueryKind::TitleAuthor {
             title: title.into().trim().to_owned(),
@@ -30,10 +50,14 @@ impl MetadataQuery {
         })
     }
 
+    /// Builds a title + author query in one call.
     pub fn title_and_author(title: impl Into<String>, author: impl Into<String>) -> Self {
         Self::title(title).with_author(author)
     }
 
+    /// Attaches (or replaces) the author of a title query.
+    ///
+    /// Ignored for ISBN queries, which are already exact.
     #[must_use]
     pub fn with_author(mut self, author: impl Into<String>) -> Self {
         if let QueryKind::TitleAuthor { author: slot, .. } = &mut self.kind {
@@ -43,12 +67,18 @@ impl MetadataQuery {
         self
     }
 
+    /// Caps how many records [`search`](crate::MetadataProvider::search)
+    /// returns. Values are clamped to at least 1.
     #[must_use]
     pub fn with_max_results(mut self, max_results: usize) -> Self {
         self.max_results = max_results.max(1);
         self
     }
 
+    /// The normalised ISBN, when this is an ISBN query.
+    ///
+    /// Providers use this (and [`as_title_author`](Self::as_title_author)) to
+    /// decide which lookup to run.
     #[must_use]
     pub fn as_isbn(&self) -> Option<&str> {
         match &self.kind {
@@ -57,6 +87,7 @@ impl MetadataQuery {
         }
     }
 
+    /// The title and optional author, when this is a title query.
     #[must_use]
     pub fn as_title_author(&self) -> Option<(&str, Option<&str>)> {
         match &self.kind {
@@ -65,11 +96,20 @@ impl MetadataQuery {
         }
     }
 
+    /// How many records the caller is willing to receive.
     #[must_use]
     pub const fn max_results(&self) -> usize {
         self.max_results
     }
 
+    /// Checks the query is well formed.
+    ///
+    /// Providers call this before hitting the network, so you rarely need to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidQuery`] when the ISBN is not a plausible
+    /// ISBN-10 or ISBN-13, or when the title has no searchable characters.
     pub fn validate(&self) -> Result<()> {
         match &self.kind {
             QueryKind::Isbn(isbn) => {
@@ -95,6 +135,7 @@ impl MetadataQuery {
         }
     }
 
+    /// Exhaustive view of the request, for the providers in this crate.
     #[cfg(feature = "_provider")]
     pub(crate) const fn kind(&self) -> &QueryKind {
         &self.kind
