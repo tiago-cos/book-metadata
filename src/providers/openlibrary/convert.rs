@@ -9,6 +9,8 @@ pub const SOURCE: &str = "openlibrary";
 
 const MAX_GENRES: usize = 25;
 
+const MAX_MACHINE_TAG_KEY: usize = 20;
+
 const NON_GENRE_SUBJECTS: [&str; 12] = [
     "accessible book",
     "protected daisy",
@@ -210,7 +212,7 @@ fn subjects(work: &Work, edition: &Edition, doc: &SearchDoc) -> Vec<String> {
         .chain(edition.subjects.clone().unwrap_or_default())
         .chain(doc.subject.clone().unwrap_or_default());
 
-    genres::normalize(raw)
+    genres::normalize(raw.filter_map(strip_machine_tag))
         .into_iter()
         .filter(|genre| {
             let lowered = genre.to_lowercase();
@@ -218,6 +220,29 @@ fn subjects(work: &Work, edition: &Edition, doc: &SearchDoc) -> Vec<String> {
         })
         .take(MAX_GENRES)
         .collect()
+}
+
+fn strip_machine_tag(subject: String) -> Option<String> {
+    match subject.split_once(':') {
+        Some((key, value)) if is_machine_tag_key(key) => {
+            if key.trim().eq_ignore_ascii_case("genre") {
+                let value = value.trim();
+                (!value.is_empty()).then(|| value.to_owned())
+            } else {
+                None
+            }
+        }
+        _ => Some(subject),
+    }
+}
+
+fn is_machine_tag_key(key: &str) -> bool {
+    let key = key.trim();
+    !key.is_empty()
+        && key.len() <= MAX_MACHINE_TAG_KEY
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn series(edition: &Edition) -> Option<BookSeries> {
@@ -472,6 +497,97 @@ mod tests {
             book.series,
             Some(BookSeries::new("A Song of Ice and Fire", 2.0))
         );
+    }
+
+    #[test]
+    fn drops_open_librarys_machine_tags() {
+        let work: Work = from(json!({
+            "title": "Red Rising",
+            "subjects": [
+                "franchise:Red Rising",
+                "series:Red Rising Trilogy",
+                "form:novel",
+                "nyt:hardcover-fiction=2015-01-25",
+                "Dystopias",
+                "Space colonies"
+            ]
+        }));
+
+        let book = assemble(
+            Parts {
+                work: Some(work),
+                ..Parts::default()
+            },
+            COVERS,
+        )
+        .expect("should map");
+
+        assert_eq!(book.genres, vec!["Dystopias", "Space colonies"]);
+    }
+
+    #[test]
+    fn keeps_the_value_of_a_genre_machine_tag() {
+        let work: Work = from(json!({
+            "title": "Red Rising",
+            "subjects": ["genre:science fiction", "form:novel"]
+        }));
+
+        let book = assemble(
+            Parts {
+                work: Some(work),
+                ..Parts::default()
+            },
+            COVERS,
+        )
+        .expect("should map");
+
+        assert_eq!(book.genres, vec!["science fiction"]);
+    }
+
+    #[test]
+    fn drops_a_machine_tag_whole_even_when_it_contains_a_separator() {
+        let work: Work = from(json!({
+            "title": "Percy Jackson",
+            "subjects": [
+                "Serie:Percy_Jackson_&_the_Olympians_Graphic_Novels",
+                "Greek Mythology"
+            ]
+        }));
+
+        let book = assemble(
+            Parts {
+                work: Some(work),
+                ..Parts::default()
+            },
+            COVERS,
+        )
+        .expect("should map");
+
+        assert_eq!(book.genres, vec!["Greek Mythology"]);
+    }
+
+    #[test]
+    fn keeps_a_subject_whose_colon_is_not_a_machine_tag() {
+        let work: Work = from(json!({
+            "title": "Colons",
+            "subjects": [
+                "Star Wars: Episode IV",
+                "Zeus (Greek deity)",
+                "Comic books, strips, etc."
+            ]
+        }));
+
+        let book = assemble(
+            Parts {
+                work: Some(work),
+                ..Parts::default()
+            },
+            COVERS,
+        )
+        .expect("should map");
+
+        assert!(book.genres.contains(&"Star Wars: Episode IV".to_owned()));
+        assert!(book.genres.contains(&"Zeus (Greek deity)".to_owned()));
     }
 
     #[test]
