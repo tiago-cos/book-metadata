@@ -1,3 +1,41 @@
+//! [Hardcover](https://hardcover.app) metadata provider.
+//!
+//! Hardcover exposes a public GraphQL API. It is the best of the free sources
+//! for book metadata.
+//!
+//! # Configuration
+//!
+//! The API requires a personal API key. Create an account, then copy the token
+//! from <https://hardcover.app/account/api>. It can be handed over directly or
+//! read from the `HARDCOVER_API_KEY` environment variable:
+//!
+//! ```no_run
+//! # use book_metadata::{providers::hardcover::HardcoverProvider, MetadataProvider, MetadataQuery};
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let provider = HardcoverProvider::from_env()?;
+//! let book = provider.fetch(&MetadataQuery::isbn("9780441013593")).await?;
+//! println!("{} ({:?})", book.title, book.series);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The token the site shows you already starts with `Bearer `; that prefix is
+//! stripped automatically, so either form works.
+//!
+//! Hardcover asks API clients to stay under roughly 60 requests per minute.
+//! This crate does no rate limiting of its own — a request that trips the
+//! limit surfaces as [`Error::RateLimited`].
+//!
+//! # Choosing between a work's editions
+//!
+//! Hardcover files every translation and printing of a book under one work, so
+//! a title search has to pick one. It takes the edition with the highest
+//! `users_count` — the one most readers actually have — falling back to a
+//! completeness heuristic only to separate editions of equal popularity.
+//!
+//! ISBN lookups skip all of this: they resolve one exact printing, which is
+//! the one you asked for.
+
 mod convert;
 mod model;
 mod queries;
@@ -14,16 +52,24 @@ use crate::provider::MetadataProvider;
 use crate::query::{MetadataQuery, QueryKind};
 use model::{BooksData, EditionsData, GraphQlResponse};
 
+/// Identifier reported by [`MetadataProvider::name`].
 pub const PROVIDER_NAME: &str = convert::SOURCE;
 
+/// Hardcover's public GraphQL endpoint.
 pub const DEFAULT_ENDPOINT: &str = "https://api.hardcover.app/v1/graphql";
 
+/// Environment variable read by [`HardcoverProvider::from_env`].
 pub const API_KEY_ENV: &str = "HARDCOVER_API_KEY";
 
 const EDITIONS_PER_BOOK: u32 = 10;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// A configured Hardcover client.
+///
+/// Cloning is cheap (the inner HTTP client is shared) and one instance is
+/// meant to be reused for the lifetime of your process, so connections are
+/// pooled.
 #[derive(Clone)]
 pub struct HardcoverProvider {
     client: reqwest::Client,
@@ -32,10 +78,20 @@ pub struct HardcoverProvider {
 }
 
 impl HardcoverProvider {
+    /// Builds a provider from an API key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when the key is blank.
     pub fn new(api_key: impl Into<String>) -> Result<Self> {
         Self::builder().api_key(api_key).build()
     }
 
+    /// Builds a provider from the `HARDCOVER_API_KEY` environment variable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when the variable is unset or blank.
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var(API_KEY_ENV).map_err(|_| Error::NotConfigured {
             provider: PROVIDER_NAME,
@@ -44,11 +100,14 @@ impl HardcoverProvider {
         Self::new(api_key)
     }
 
+    /// Starts a builder for the less common knobs: a custom endpoint, a
+    /// different timeout, or a pre-configured [`reqwest::Client`].
     #[must_use]
     pub fn builder() -> HardcoverBuilder {
         HardcoverBuilder::default()
     }
 
+    /// The endpoint this provider talks to.
     #[must_use]
     pub fn endpoint(&self) -> &str {
         &self.endpoint
@@ -190,6 +249,7 @@ impl std::fmt::Debug for HardcoverProvider {
     }
 }
 
+/// Builder for [`HardcoverProvider`].
 #[derive(Debug, Clone)]
 pub struct HardcoverBuilder {
     api_key: Option<String>,
@@ -212,36 +272,49 @@ impl Default for HardcoverBuilder {
 }
 
 impl HardcoverBuilder {
+    /// Sets the API key. A leading `Bearer ` is stripped for you.
     #[must_use]
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
         self
     }
 
+    /// Overrides the GraphQL endpoint. Mostly useful for tests.
     #[must_use]
     pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = endpoint.into();
         self
     }
 
+    /// Per-request timeout. Ignored when a custom client is supplied.
     #[must_use]
     pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
+    /// `User-Agent` sent with each request. Ignored when a custom client is
+    /// supplied.
     #[must_use]
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = user_agent.into();
         self
     }
 
+    /// Uses an existing HTTP client, so the caller keeps control over proxies,
+    /// connection pooling and middleware.
     #[must_use]
     pub fn client(mut self, client: reqwest::Client) -> Self {
         self.client = Some(client);
         self
     }
 
+    /// Builds the provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotConfigured`] when no API key was set, or
+    /// [`Error::Transport`] when the HTTP client cannot be constructed.
     pub fn build(self) -> Result<HardcoverProvider> {
         let api_key = self
             .api_key
